@@ -20,6 +20,13 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_link_options(lab3 PRIVATE --coverage)
 endif ()
 
+option(ENABLE_PROFILING "Enable profiling with gprof" OFF)
+if (ENABLE_PROFILING)
+    target_compile_options(lab3 PRIVATE -pg)
+    target_link_options(lab3 PRIVATE -pg)
+    message(STATUS "Profiling enabled with -pg flag")
+endif ()
+
 if (MINGW)
     target_link_options(lab3 PRIVATE "-static" "-static-libgcc" "-static-libstdc++")
 endif ()

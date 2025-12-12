@@ -7,6 +7,7 @@ using namespace std;
 
 WavFile::WavFile(const string& filename)
 {
+    filename_ = filename;
     ifstream f(filename, ios::binary);
     if (!f) throw runtime_error("Cannot open WAV file");
 
@@ -46,6 +47,8 @@ WavFile::WavFile(const string& filename)
             if (audioFmt != 1 || numCh != 1 || bitsPerSample != 16 || sampleRate != 44100)
                 throw runtime_error("Unsupported WAV format");
             samples_.resize(subchunkSize / 2);
+            dataOffset_ = static_cast<size_t>(f.tellg());
+            numSamples_ = subchunkSize / 2;
             f.read(reinterpret_cast<char*>(samples_.data()), subchunkSize);
         }
         else
@@ -106,4 +109,41 @@ bool WavFile::IsSupportedFormat(const string& filename)
     {
         return false;
     }
+}
+
+size_t WavFile::sampleCount() const
+{
+    if (!samples_.empty()) return samples_.size();
+    return numSamples_;
+}
+
+vector<int16_t> WavFile::readBlock(size_t frstSampleIndex, size_t count) const
+{
+    // Если места нет
+    if (!samples_.empty())
+    {
+        vector<int16_t> out;
+        if (frstSampleIndex >= samples_.size()) return out;
+        size_t avail = min(count, samples_.size() - frstSampleIndex);
+        out.insert(out.end(), samples_.begin() + frstSampleIndex, samples_.begin() + frstSampleIndex + avail);
+        return out;
+    }
+
+    // Иначе из файла
+    if (frstSampleIndex >= numSamples_) return {};
+    size_t avail = min(count, numSamples_ - frstSampleIndex);
+    vector<int16_t> out(avail);
+
+    ifstream f(filename_, ios::binary);
+    if (!f) throw runtime_error("Cannot open WAV file for block read");
+    f.seekg(dataOffset_ + frstSampleIndex * 2, ios::beg);
+    f.read(reinterpret_cast<char*>(out.data()), avail * 2);
+
+    size_t readBytes = f.gcount();
+    if (readBytes < avail * 2)
+    {
+        out.resize(readBytes / 2);
+    }
+
+    return out;
 }

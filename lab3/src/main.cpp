@@ -4,6 +4,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <algorithm>
 
 using namespace std;
 
@@ -17,6 +18,8 @@ int main(int argc, char* argv[])
 
     string configFile, outFile;
     vector<string> inFiles;
+
+    // --- аргументы ---
     for (int i = 1; i < argc; ++i)
     {
         string arg = argv[i];
@@ -28,16 +31,32 @@ int main(int argc, char* argv[])
                 cout << kv.first << ": " << kv.second << "\n";
             return 0;
         }
-        if (arg == "-c") configFile = argv[++i];
-        else if (outFile.empty()) outFile = arg;
-        else inFiles.push_back(arg);
+        if (arg == "-c")
+        {
+            if (i + 1 >= argc)
+            {
+                cerr << "Missing config file after -c\n";
+                return 1;
+            }
+            configFile = argv[++i];
+        }
+        else if (outFile.empty())
+        {
+            outFile = arg;
+        }
+        else
+        {
+            inFiles.push_back(arg);
+        }
     }
+
     if (configFile.empty() || outFile.empty() || inFiles.empty())
     {
         cerr << "Missing arguments\n";
         return 1;
     }
 
+    // --- загрузка WAV-файлов ---
     vector<WavFile> wavs;
     for (const auto& file : inFiles)
     {
@@ -49,40 +68,68 @@ int main(int argc, char* argv[])
         wavs.emplace_back(file);
     }
 
+    // --- разбор конфига ---
     auto configs = ConfigParser(configFile).Parse();
-    vector<int16_t> mainStream = wavs[0].samples();
-    cout << "Samples loaded: " << mainStream.size() << endl;
+    const size_t blockSize = 4096;
+    size_t totalSamples = wavs[0].sampleCount();
 
+    cout << "Total samples: " << totalSamples << "\n";
+
+    // --- применение конвертеров ---
     for (const auto& conf : configs)
     {
         try
         {
             auto conv = ConverterFactory::Create(conf.type, conf.args);
-            vector<vector<int16_t>> extraStreams;
 
-            // Собираем потоки ($)
+            // Определение индексов дополнительных потоков ($1, $2, ...)
+            vector<int> extraId;
             for (const auto& arg : conf.args)
+            {
                 if (arg.size() > 1 && arg[0] == '$')
                 {
                     int idx = stoi(arg.substr(1)) - 1;
-                    if (idx >= wavs.size())
-                    {
-                        throw runtime_error(
-                            "Extra stream $" + to_string(idx + 1) + " out of range");
-                    }
-                    extraStreams.push_back(wavs[idx].samples());
+                    if (idx >= static_cast<int>(wavs.size()) || idx < 0)
+                        throw runtime_error("Extra stream $" + to_string(idx + 1) + " out of range");
+                    extraId.push_back(idx);
                 }
-            mainStream = conv->Process(mainStream, extraStreams);
-        }
+            }
 
-        catch (runtime_error& e)
+            vector<int16_t> transformedAll;
+            transformedAll.reserve(totalSamples);
+
+            // Блочная обработка
+            for (size_t off = 0; off < totalSamples; off += blockSize)
+            {
+                size_t cnt = min(blockSize, totalSamples - off);
+                auto mainBlock = wavs[0].readBlock(off, cnt);
+
+                vector<vector<int16_t>> extraBlocks;
+                extraBlocks.reserve(extraId.size());
+                for (int idx : extraId)
+                    extraBlocks.push_back(wavs[idx].readBlock(off, cnt));
+
+                // Новый интерфейс: ProcessBlock без globalOffset
+                auto outBlock = conv->ProcessBlock(mainBlock, extraBlocks);
+
+                if (outBlock.size() != mainBlock.size())
+                    outBlock.resize(mainBlock.size());
+
+                transformedAll.insert(transformedAll.end(), outBlock.begin(), outBlock.end());
+            }
+
+            wavs[0] = WavFile(transformedAll); // обновляем основной поток
+            cout << "Applied converter: " << conf.type << "\n";
+        }
+        catch (const runtime_error& e)
         {
             cerr << "Config error in step '" << conf.type << "': " << e.what() << endl;
             return 3;
         }
     }
 
-    WavFile(mainStream).save(outFile);
+    // --- сохранение ---
+    WavFile(wavs[0].samples()).save(outFile);
     cout << "Done. Output: " << outFile << endl;
     return 0;
 }
