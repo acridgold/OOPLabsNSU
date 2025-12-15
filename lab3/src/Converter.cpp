@@ -33,12 +33,13 @@ public:
 class MixConverter : public Converter
 {
     int streamIdx_;
-    int insertPos_;
+    size_t insertSample_;
     size_t processedSamples_;
 
 public:
     MixConverter(int idx, int pos)
-        : streamIdx_(idx), insertPos_(pos), processedSamples_(0)
+        : streamIdx_(idx), insertSample_(static_cast<size_t>(pos) * 44100),
+          processedSamples_(0)
     {
     }
 
@@ -46,24 +47,23 @@ public:
                             const vector<vector<int16_t>>& extra) override
     {
         vector<int16_t> out = input;
-        if (streamIdx_ >= (int)extra.size())
-        {
+
+        if (streamIdx_ >= static_cast<int>(extra.size())) {
             processedSamples_ += input.size();
             return out;
         }
 
         const auto& ext = extra[streamIdx_];
-        size_t insertSample = static_cast<size_t>(insertPos_) * 44100;
 
-        for (size_t i = 0; i < out.size(); ++i)
-        {
+        for (size_t i = 0; i < out.size(); ++i) {
             size_t globalPos = processedSamples_ + i;
-            if (globalPos < insertSample)
-                continue;
-            size_t j = globalPos - insertSample;
-            int16_t extVal = (j < ext.size()) ? ext[j] : 0;
-            int32_t sum = static_cast<int32_t>(out[i]) + static_cast<int32_t>(extVal);
-            out[i] = int16_t(sum / 2);
+
+            if (globalPos >= insertSample_) {
+                size_t j = globalPos - insertSample_;
+                int16_t extVal = (j < ext.size()) ? ext[j] : 0;
+                int32_t sum = static_cast<int32_t>(out[i]) + static_cast<int32_t>(extVal);
+                out[i] = static_cast<int16_t>(sum / 2);
+            }
         }
 
         processedSamples_ += input.size();
@@ -75,6 +75,7 @@ public:
         return "mix $n <insert_sec> - Mix extra stream at insert_sec, average samples.";
     }
 };
+
 
 // --- ECHO ---
 class EchoConverter : public Converter
