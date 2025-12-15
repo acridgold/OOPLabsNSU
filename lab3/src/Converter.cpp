@@ -34,7 +34,7 @@ class MixConverter : public Converter
 {
     int streamIdx_;
     int insertPos_;
-    size_t processedSamples_; // Блоки
+    size_t processedSamples_;
 
 public:
     MixConverter(int idx, int pos)
@@ -46,29 +46,7 @@ public:
                             const vector<vector<int16_t>>& extra) override
     {
         vector<int16_t> out = input;
-        if (streamIdx_ >= extra.size())
-            return out;
-
-        const auto& ext = extra[streamIdx_];
-        size_t insertSample = static_cast<size_t>(insertPos_) * 44100;
-        for (size_t i = 0; i < out.size(); ++i)
-        {
-            size_t globalPos = i;
-            if (globalPos < insertSample)
-                continue;
-            size_t j = globalPos - insertSample;
-            int16_t extVal = (j < ext.size()) ? ext[j] : 0;
-            int32_t sum = static_cast<int32_t>(out[i]) + static_cast<int32_t>(extVal);
-            out[i] = int16_t(sum / 2);
-        }
-        return out;
-    }
-
-    vector<int16_t> ProcessBlock(const vector<int16_t>& input,
-                                 const vector<vector<int16_t>>& extra) override
-    {
-        vector<int16_t> out = input;
-        if (streamIdx_ >= extra.size())
+        if (streamIdx_ >= (int)extra.size())
         {
             processedSamples_ += input.size();
             return out;
@@ -102,20 +80,31 @@ public:
 class EchoConverter : public Converter
 {
     double delay_, decay_;
+    vector<int16_t> buffer_;
+    size_t bufferPos_;
 
 public:
-    EchoConverter(double d, double c) : delay_(d), decay_(c) {}
+    EchoConverter(double d, double c) : delay_(d), decay_(c), bufferPos_(0)
+    {
+        int bufSize = int(d * 44100) + 1;
+        buffer_.resize(bufSize, 0);
+    }
 
     vector<int16_t> Process(const vector<int16_t>& input,
                             const vector<vector<int16_t>>&) override
     {
         vector<int16_t> out = input;
         int dS = int(delay_ * 44100);
-        for (int i = dS; i < (int)out.size(); ++i)
+
+        for (size_t i = 0; i < out.size(); ++i)
         {
-            int val = out[i] + int(out[i - dS] * decay_);
+            int delayIdx = (bufferPos_ + buffer_.size() - dS) % buffer_.size();
+            int val = int(out[i]) + int(buffer_[delayIdx] * decay_);
             out[i] = max(-32768, min(32767, val));
+            buffer_[bufferPos_] = out[i];
+            bufferPos_ = (bufferPos_ + 1) % buffer_.size();
         }
+
         return out;
     }
 
@@ -130,6 +119,7 @@ class BassBoostConverter : public Converter
 {
     double user_factor_;
     int window_;
+    vector<int16_t> history_;
 
 public:
     BassBoostConverter(double user_factor, int window = 32)
@@ -144,14 +134,21 @@ public:
         double factor = user_factor_ / 10.0;
         double norm_window = double(window_) / 32.0;
 
-        for (int i = window_; i < (int)out.size(); ++i)
+        for (size_t i = 0; i < out.size(); ++i)
         {
-            int64_t sum = 0;
-            for (int j = i - window_; j < i; ++j)
-                sum += out[j];
-            int64_t bass = sum / window_;
-            int val = int(out[i] + bass * factor * norm_window);
-            out[i] = max(-32768, min(32767, val));
+            history_.push_back(input[i]);
+            if ((int)history_.size() > window_)
+                history_.erase(history_.begin());
+
+            if ((int)history_.size() >= window_)
+            {
+                int64_t sum = 0;
+                for (int j = 0; j < window_; ++j)
+                    sum += history_[j];
+                int64_t bass = sum / window_;
+                int val = int(out[i]) + int(bass * factor * norm_window);
+                out[i] = max(-32768, min(32767, val));
+            }
         }
 
         return out;

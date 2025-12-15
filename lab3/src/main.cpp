@@ -19,7 +19,6 @@ int main(int argc, char* argv[])
     string configFile, outFile;
     vector<string> inFiles;
 
-    // --- аргументы ---
     for (int i = 1; i < argc; ++i)
     {
         string arg = argv[i];
@@ -109,8 +108,7 @@ int main(int argc, char* argv[])
                 for (int idx : extraId)
                     extraBlocks.push_back(wavs[idx].readBlock(off, cnt));
 
-                // Новый интерфейс: ProcessBlock без globalOffset
-                auto outBlock = conv->ProcessBlock(mainBlock, extraBlocks);
+                auto outBlock = conv->Process(mainBlock, extraBlocks);
 
                 if (outBlock.size() != mainBlock.size())
                     outBlock.resize(mainBlock.size());
