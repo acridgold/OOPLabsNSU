@@ -11,22 +11,19 @@ using namespace std;
 
 // ===== SUBTASK #1: Print tuple =====
 
-namespace detail
+template <typename Tuple, size_t I = 0>
+struct TuplePrinter
 {
-    template <typename Tuple, size_t I = 0>
-    struct TuplePrinter
+    static void print(ostream& os, const Tuple& t)
     {
-        static void print(ostream& os, const Tuple& t)
+        if constexpr (I > 0) os << ", ";
+        os << get<I>(t);
+        if constexpr (I + 1 < tuple_size_v<Tuple>)
         {
-            if constexpr (I > 0) os << ", ";
-            os << get<I>(t);
-            if constexpr (I + 1 < tuple_size_v<Tuple>)
-            {
-                TuplePrinter<Tuple, I + 1>::print(os, t);
-            }
+            TuplePrinter<Tuple, I + 1>::print(os, t);
         }
-    };
-}
+    }
+};
 
 template <typename Ch, typename Tr, typename... Args>
 ostream& operator<<(basic_ostream<Ch, Tr>& os, const tuple<Args...>& t)
@@ -34,7 +31,7 @@ ostream& operator<<(basic_ostream<Ch, Tr>& os, const tuple<Args...>& t)
     os << "(";
     if constexpr (sizeof...(Args) > 0)
     {
-        detail::TuplePrinter<tuple<Args...>>::print(os, t);
+        TuplePrinter<tuple<Args...>>::print(os, t);
     }
     os << ")";
     return os;
@@ -101,7 +98,7 @@ private:
         return line;
     }
 
-    vector<string> splitLine(const string& line, size_t& lineNum)
+    vector<string> splitLine(const string& line)
     {
         vector<string> result;
         string current;
@@ -140,13 +137,13 @@ private:
             }
             try
             {
-                get<I>(t) = ::parseValue<tuple_element_t<I, Tuple>>(fields[I]);
+                get<I>(t) = parseValue<tuple_element_t<I, Tuple>>(fields[I]);
             }
             catch (const runtime_error& e)
             {
                 throw CSVParseException(e.what(), lineNum, I + 1);
             }
-            if constexpr (I + 1 < tuple_size_v<Tuple>)
+            if (I + 1 < tuple_size_v<Tuple>)
             {
                 fillTuple<Tuple, I + 1>(t, fields, lineNum);
             }
@@ -179,7 +176,6 @@ public:
                     isEnd_ = true;
                     return;
                 }
-                // Skip empty lines
                 if (!line.empty())
                 {
                     break;
@@ -189,7 +185,7 @@ public:
 
             try
             {
-                auto fields = parser_->splitLine(line, lineNum_);
+                auto fields = parser_->splitLine(line);
                 parser_->fillTuple(current_, fields, lineNum_);
                 ++lineNum_;
             }
@@ -250,8 +246,8 @@ public:
     {
         for (size_t i = 0; i < skipLines_; ++i)
         {
-            string dummy;
-            getline(file_, dummy);
+            string lazy;
+            getline(file_, lazy);
         }
     }
 
