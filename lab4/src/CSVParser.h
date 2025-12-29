@@ -16,7 +16,7 @@ struct TuplePrinter
 {
     static void print(ostream& os, const Tuple& t)
     {
-        if constexpr (I > 0) os << ", ";
+        if (I > 0) os << ", ";
         os << get<I>(t);
         if constexpr (I + 1 < tuple_size_v<Tuple>)
         {
@@ -29,7 +29,7 @@ template <typename Ch, typename Tr, typename... Args>
 ostream& operator<<(basic_ostream<Ch, Tr>& os, const tuple<Args...>& t)
 {
     os << "(";
-    if constexpr (sizeof...(Args) > 0)
+    if (sizeof...(Args) > 0)
     {
         TuplePrinter<tuple<Args...>>::print(os, t);
     }
